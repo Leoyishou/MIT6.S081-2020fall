@@ -8,7 +8,7 @@
 int main(int argc, char *argv[]) {
     // argc 表示命令行参数的个数，比如 sleep 100 那么 argc 就是 2
     if(argc != 2) {
-        fprintf(2, "Usage: sleep fucking ticks\n");
+        fprintf(2, "Usage: sleep fucking 666 ticks\n");
         // 异常退出
         exit(1);
     }
