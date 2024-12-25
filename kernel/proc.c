@@ -260,14 +260,15 @@ fork(void)
 {
   int i, pid;
   struct proc *np;
-  struct proc *p = myproc();
+  struct proc *p = myproc();  //Process p = Process.currentProcess();
 
   // Allocate process.
   if((np = allocproc()) == 0){
-    return -1;
+    return -1;  //返回 -1 表示错误
   }
 
   // Copy user memory from parent to child.
+  // 复制内存空间 np.setMemory(p.getMemory().clone());
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
@@ -275,18 +276,22 @@ fork(void)
   }
   np->sz = p->sz;
 
-  np->parent = p;
+  np->parent = p; //np.setParent(p);
+
+  np->mask = p->mask; //np.setMask(p.getMask());
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
   // Cause fork to return 0 in the child.
-  np->trapframe->a0 = 0;
+  // 修改子进程这边的返回值，
+  // 父进程拿到的 fork() 返回值是 pid，子进程则是 0。这是 Unix fork() 的经典语义。
+  np->trapframe->a0 = 0; 
 
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
-      np->ofile[i] = filedup(p->ofile[i]);
+      np->ofile[i] = filedup(p->ofile[i]); //child.openFiles[i] = new FileDescriptor(parent.openFiles[i])
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
