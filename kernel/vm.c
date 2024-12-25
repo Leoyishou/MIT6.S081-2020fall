@@ -142,8 +142,14 @@ kvmpa(uint64 va)
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
-// physical addresses starting at pa. va and size might not
-// be page-aligned. Returns 0 on success, -1 if walk() couldn't
+/**
+ * @param pagetable 页表
+ * @param va virtualAddr虚拟地址
+ * @param size size大小
+ * @param pa physicalAddr物理地址
+ * @param perm permission权限标志（读/写/执行）
+ * @return 0 on success, -1 if walk() couldn't
+ */
 // allocate a needed page-table page.
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
@@ -194,18 +200,54 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   }
 }
 
-// create an empty user page table.
-// returns 0 if out of memory.
+void
+kvmmapkern(pagetable_t pagetable, uint64 virtualAddr, uint64 size
+                          , uint64 physicalAdrr, int permissions) {
+  if(mappages(pagetable, virtualAddr, size, physicalAdrr, permissions) != 0)
+    panic("kvmmapkern");
+}
+
 pagetable_t
-uvmcreate()
-{
+kvmcreate() {
   pagetable_t pagetable;
-  pagetable = (pagetable_t) kalloc();
-  if(pagetable == 0)
-    return 0;
-  memset(pagetable, 0, PGSIZE);
+  int i;
+  pagetable = uvmcreate(); // 创建一个空的用户页表
+  for(i = 0; i < 512; i++) {
+    pagetable[i] = kernel_pagetable[i]; // 将内核页表复制到原本为空用户页表
+  }
+  // 将内核的UART0映射到用户页表, 虚拟地址为UART0, 物理地址为UART0, 大小为PGSIZE, 权限为读+写
+  // 串口通信设备
+  kvmmapkern(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  // 虚拟 I/O 设备接口
+  kvmmapkern(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  // CLINT 用于定时器中断
+  kvmmapkern(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  // PLIC 用于中断控制器
+  kvmmapkern(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
   return pagetable;
 }
+
+// 递归擦除，核心操作是level1[i] = 0;
+void kvmfree(pagetable_t pagetable, uint64 size) {
+  pte_t pte = pagetable[0];
+  pagetable_t level1 = (pagetable_t) PTE2PA(pte);
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = level1[i];
+    if (pte & PTE_V) {
+      uint64 level2 = PTE2PA(pte);
+      kfree((void *) level2);
+      level1[i] = 0;
+    }
+  }
+  kfree((void *) level1);
+  kfree((void *) pagetable);
+}
+
+
+
+
+
 
 // Load the user initcode into address 0 of pagetable,
 // for the very first process.
@@ -439,4 +481,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// 帮助做递归的，参考freewalk的写法
+void
+vmprinthelper(pagetable_t pagetable, int level) {
+  for(int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V) {
+      for(int i = 0; i < level; i++) {
+        uint64 child = PTE2PA(pte)  // getChild
+        printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+        if (level == 3) {
+          continue;
+        }else{
+          vmprinthelper(child, level + 1);
+        }
+      }
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable);
+  vmprinthelper(pagetable, 1);
 }
